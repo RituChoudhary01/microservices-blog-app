@@ -2,10 +2,8 @@
 import Loading from "@/components/loading";
 import {
   author_service,
-  Blog,
   blog_service,
   useAppData,
-  User,
 } from "../../../components/context/AppContext";
 import axios from "axios";
 import {
@@ -20,13 +18,14 @@ import {
   ChevronLeft,
   Heart,
   Share2,
-  MoreHorizontal,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Cookies from "js-cookie";
 import toast from "react-hot-toast";
+
+// ── Local types (aligned to DB schema) ─────────────────────────────────────
 
 interface Comment {
   id: string;
@@ -36,140 +35,196 @@ interface Comment {
   username: string;
 }
 
+interface BlogDetail {
+  id: string;
+  title: string;
+  description: string;
+  blogcontent: string;
+  image: string;
+  category: string;
+  tags: string[];
+  author: string;
+  create_at: string;
+}
+
+interface Author {
+  _id: string;
+  name: string;
+  email: string;
+  image: string;
+}
+
+interface ApiResponse {
+  message: string;
+}
+
 const BlogPage = () => {
   const { isAuth, user, fetchBlogs, savedBlogs, getSavedBlogs } = useAppData();
   const router = useRouter();
-  const { id } = useParams();
-  const [blog, setBlog] = useState<Blog | null>(null);
-  const [author, setAuthor] = useState<User | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { id } = useParams<{ id: string }>();
+
+  const [blog, setBlog] = useState<BlogDetail | null>(null);
+  const [author, setAuthor] = useState<Author | null>(null);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   const [comment, setComment] = useState("");
   const [saved, setSaved] = useState(false);
+  const [liked, setLiked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
 
-  async function fetchComment() {
+  // ── Fetch blog ──────────────────────────────────────────────────────────────
+  const fetchSingleBlog = useCallback(async () => {
+    if (!id) return;
     try {
-      const { data } = await axios.get(`${blog_service}/api/v1/comment/${id}`);
-      setComments(data);
-    } catch (error) {
-      console.log(error);
+      setPageLoading(true);
+      const { data } = await axios.get<{ blog: BlogDetail; author: Author }>(
+        `${blog_service}/api/v1/blog/${id}`
+      );
+      setBlog(data.blog);
+      setAuthor(data.author);
+    } catch {
+      toast.error("Could not load blog post.");
+      router.push("/blogs");
+    } finally {
+      setPageLoading(false);
     }
-  }
-  useEffect(() => {
-    fetchComment();
+  }, [id, router]);
+
+  // ── Fetch comments ───────────────────────────────────────────────────────────
+  const fetchComments = useCallback(async () => {
+    if (!id) return;
+    try {
+      const { data } = await axios.get<Comment[]>(`${blog_service}/api/v1/comment/${id}`);
+      setComments(Array.isArray(data) ? data : []);
+    } catch {
+      // silent – comments are non-critical
+    }
   }, [id]);
 
+  useEffect(() => {
+    fetchSingleBlog();
+    fetchComments();
+  }, [fetchSingleBlog, fetchComments]);
+
+  // ── Sync saved state ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    setSaved(!!savedBlogs?.some((b) => b.blogid === id));
+  }, [savedBlogs, id]);
+
+  // ── Add comment ──────────────────────────────────────────────────────────────
   async function addComment() {
-    if (!comment.trim()) return;
+    const trimmed = comment.trim();
+    if (!trimmed) return;
     try {
       setSubmitting(true);
       const token = Cookies.get("token");
-      const { data } = await axios.post(
+      const { data } = await axios.post<ApiResponse>(
         `${blog_service}/api/v1/comment/${id}`,
-        { comment },
+        { comment: trimmed },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      toast.success(data.message);
+      toast.success(data.message ?? "Comment posted!");
       setComment("");
-      fetchComment();
+      fetchComments();
     } catch {
-      toast.error("Problem while adding comment");
+      toast.error("Could not post comment. Please try again.");
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function fetchSingleBlog() {
-    try {
-      setLoading(true);
-      const { data } = await axios.get(`${blog_service}/api/v1/blog/${id}`);
-      setBlog(data.blog);
-      setAuthor(data.author);
-    } catch (error) {
-      console.log(error);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const deleteComment = async (commentId: string) => {
+  // ── Delete comment ───────────────────────────────────────────────────────────
+  async function deleteComment(commentId: string) {
     if (!confirm("Delete this comment?")) return;
     try {
       const token = Cookies.get("token");
-      const { data } = await axios.delete(
+      const { data } = await axios.delete<ApiResponse>(
         `${blog_service}/api/v1/comment/${commentId}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      toast.success(data.message);
-      fetchComment();
+      toast.success(data.message ?? "Comment deleted.");
+      fetchComments();
     } catch {
-      toast.error("Problem while deleting comment");
-    }
-  };
-
-  async function deleteBlog() {
-    if (!confirm("Are you sure you want to delete this blog?")) return;
-    try {
-      setLoading(true);
-      const token = Cookies.get("token");
-      const { data } = await axios.delete(
-        `${author_service}/api/v1/blog/${id}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      toast.success(data.message);
-      router.push("/blogs");
-      setTimeout(() => fetchBlogs(), 4000);
-    } catch {
-      toast.error("Problem while deleting blog");
-    } finally {
-      setLoading(false);
+      toast.error("Could not delete comment.");
     }
   }
 
-  useEffect(() => {
-    if (savedBlogs?.some((b) => b.blogid === id)) setSaved(true);
-    else setSaved(false);
-  }, [savedBlogs, id]);
-
-  async function saveBlog() {
-    const token = Cookies.get("token");
+  // ── Delete blog ──────────────────────────────────────────────────────────────
+  async function deleteBlog() {
+    if (!confirm("Are you sure you want to delete this blog?")) return;
     try {
-      const { data } = await axios.post(
+      setActionLoading(true);
+      const token = Cookies.get("token");
+      const { data } = await axios.delete<ApiResponse>(
+        `${author_service}/api/v1/blog/${id}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      toast.success(data.message ?? "Blog deleted.");
+      router.push("/blogs");
+      setTimeout(() => fetchBlogs(), 4000);
+    } catch {
+      toast.error("Could not delete blog.");
+      setActionLoading(false);
+    }
+  }
+
+  // ── Save / unsave ────────────────────────────────────────────────────────────
+  async function toggleSave() {
+    if (!isAuth) {
+      toast.error("Please log in to save posts.");
+      return;
+    }
+    const prevSaved = saved;
+    setSaved(!saved); // optimistic
+    try {
+      const token = Cookies.get("token");
+      const { data } = await axios.post<ApiResponse>(
         `${blog_service}/api/v1/save/${id}`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      toast.success(data.message);
-      setSaved(!saved);
+      toast.success(data.message ?? (prevSaved ? "Removed from saved." : "Saved!"));
       getSavedBlogs();
     } catch {
-      toast.error("Problem while saving blog");
+      setSaved(prevSaved); // rollback
+      toast.error("Could not update saved status.");
     }
   }
 
+  // ── Like (local toggle – wire to API when ready) ─────────────────────────────
+  function toggleLike() {
+    if (!isAuth) {
+      toast.error("Please log in to like posts.");
+      return;
+    }
+    setLiked((prev) => !prev);
+  }
+
+  // ── Share ────────────────────────────────────────────────────────────────────
   function handleShare() {
+    const url = window.location.href;
     if (navigator.share) {
-      navigator.share({ title: blog?.title, url: window.location.href });
+      navigator.share({ title: blog?.title, url }).catch(() => {});
     } else {
-      navigator.clipboard.writeText(window.location.href);
+      navigator.clipboard.writeText(url);
       toast.success("Link copied to clipboard!");
     }
   }
 
-  useEffect(() => {
-    fetchSingleBlog();
-  }, [id]);
-
-  if (!blog) return <Loading />;
+  // ── Render ───────────────────────────────────────────────────────────────────
+  if (pageLoading) return <Loading />;
+  if (!blog) return null;
 
   const readTime = Math.max(1, Math.ceil((blog.blogcontent?.length || 0) / 1200));
+  const isOwner = blog.author === user?._id;
 
   return (
-    <div className="min-h-screen bg-linear-to-b from-slate-50 to-white dark:from-slate-950 dark:to-slate-900">
-      {/* Top Nav Bar */}
-      <div className="sticky top-0 z-50 border-b border-slate-200/80 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white dark:from-slate-950 dark:to-slate-900">
+
+      {/* ── Sticky Nav ── */}
+      <header className="sticky top-0 z-50 border-b border-slate-200/80 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md">
         <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
           <button
             onClick={() => router.back()}
@@ -180,27 +235,45 @@ const BlogPage = () => {
           </button>
 
           <div className="flex items-center gap-2">
+            {/* Like */}
+            <button
+              onClick={toggleLike}
+              aria-label={liked ? "Unlike" : "Like"}
+              className={`p-2 rounded-full transition-all duration-200 ${
+                liked
+                  ? "bg-rose-50 text-rose-500 dark:bg-rose-900/30"
+                  : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              }`}
+            >
+              <Heart className={`w-5 h-5 ${liked ? "fill-current" : ""}`} />
+            </button>
+
+            {/* Save */}
             {isAuth && (
               <button
-                onClick={saveBlog}
+                onClick={toggleSave}
+                aria-label={saved ? "Unsave" : "Save for later"}
                 className={`p-2 rounded-full transition-all duration-200 ${
                   saved
                     ? "bg-amber-50 text-amber-500 dark:bg-amber-900/30"
                     : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                 }`}
-                title={saved ? "Saved" : "Save for later"}
               >
                 {saved ? <BookmarkCheck className="w-5 h-5" /> : <Bookmark className="w-5 h-5" />}
               </button>
             )}
+
+            {/* Share */}
             <button
               onClick={handleShare}
+              aria-label="Share"
               className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              title="Share"
             >
               <Share2 className="w-5 h-5" />
             </button>
-            {blog.author === user?._id && (
+
+            {/* Owner actions */}
+            {isOwner && (
               <>
                 <button
                   onClick={() => router.push(`/blog/edit/${id}`)}
@@ -211,20 +284,21 @@ const BlogPage = () => {
                 </button>
                 <button
                   onClick={deleteBlog}
-                  disabled={loading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 transition-colors"
+                  disabled={actionLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  Delete
+                  {actionLoading ? "Deleting…" : "Delete"}
                 </button>
               </>
             )}
           </div>
         </div>
-      </div>
+      </header>
 
+      {/* ── Article ── */}
       <article className="max-w-3xl mx-auto px-6 py-12">
-        {/* Category tag */}
+        {/* Category */}
         {blog.category && (
           <span className="inline-block px-3 py-1 text-xs font-semibold tracking-widest uppercase rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 mb-6">
             {blog.category}
@@ -236,22 +310,25 @@ const BlogPage = () => {
           {blog.title}
         </h1>
 
-        {/* Author + Meta Row */}
+        {/* Author + Meta */}
         <div className="flex items-center gap-4 mb-8 pb-8 border-b border-slate-200 dark:border-slate-800">
-          <Link href={`/profile/${author?._id}`} className="flex items-center gap-3 group flex-1">
+          <Link
+            href={`/profile/${author?._id}`}
+            className="flex items-center gap-3 group flex-1 min-w-0"
+          >
             {author?.image ? (
               <img
                 src={author.image}
-                className="w-11 h-11 rounded-full object-cover ring-2 ring-white dark:ring-slate-800 shadow-sm"
-                alt={author?.name}
+                className="w-11 h-11 rounded-full object-cover ring-2 ring-white dark:ring-slate-800 shadow-sm flex-shrink-0"
+                alt={author.name}
               />
             ) : (
-              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-violet-400 to-indigo-600 flex items-center justify-center text-white font-semibold text-sm">
-                {author?.name?.[0]?.toUpperCase() || "A"}
+              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-violet-400 to-indigo-600 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
+                {author?.name?.[0]?.toUpperCase() ?? "A"}
               </div>
             )}
-            <div>
-              <p className="font-semibold text-sm text-slate-900 dark:text-white group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">
+            <div className="min-w-0">
+              <p className="font-semibold text-sm text-slate-900 dark:text-white group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors truncate">
                 {author?.name}
               </p>
               <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
@@ -259,14 +336,21 @@ const BlogPage = () => {
                   <Clock className="w-3 h-3" />
                   {readTime} min read
                 </span>
+                {/* ✅ Fixed: was blog.createdAt — now correctly blog.create_at */}
                 {blog.create_at && (
-                  <span>{new Date(blog.create_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</span>
+                  <span>
+                    {new Date(blog.create_at).toLocaleDateString("en-US", {
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </span>
                 )}
               </div>
             </div>
           </Link>
 
-          <div className="flex items-center gap-2 text-sm text-slate-500">
+          <div className="flex items-center gap-2 text-sm text-slate-500 flex-shrink-0">
             <MessageCircle className="w-4 h-4" />
             <span>{comments.length}</span>
           </div>
@@ -283,33 +367,36 @@ const BlogPage = () => {
           </div>
         )}
 
-        {/* Description */}
+        {/* Description / Lead */}
         {blog.description && (
           <p className="text-xl text-slate-600 dark:text-slate-300 font-medium leading-relaxed mb-8 italic border-l-4 border-violet-400 pl-5">
             {blog.description}
           </p>
         )}
 
-        {/* Blog Content */}
+        {/* Body */}
         <div
           className="prose prose-lg dark:prose-invert prose-headings:font-bold prose-a:text-violet-600 prose-img:rounded-xl max-w-none text-slate-700 dark:text-slate-300 leading-relaxed"
           dangerouslySetInnerHTML={{ __html: blog.blogcontent }}
         />
 
         {/* Tags */}
-        {/* {blog.tags && blog.tags.length > 0 && (
+        {blog.tags && blog.tags.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-12 pt-8 border-t border-slate-200 dark:border-slate-800">
             {blog.tags.map((tag: string, i: number) => (
-              <span key={i} className="px-3 py-1 text-sm rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+              <span
+                key={i}
+                className="px-3 py-1 text-sm rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+              >
                 #{tag}
               </span>
             ))}
           </div>
-        )} */}
+        )}
       </article>
 
-      {/* Comments Section */}
-      <div className="max-w-3xl mx-auto px-6 pb-20">
+      {/* ── Comments ── */}
+      <section aria-label="Comments" className="max-w-3xl mx-auto px-6 pb-20">
         <div className="border-t border-slate-200 dark:border-slate-800 pt-12">
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-8 flex items-center gap-2">
             <MessageCircle className="w-6 h-6 text-violet-500" />
@@ -317,18 +404,18 @@ const BlogPage = () => {
           </h2>
 
           {/* Comment Input */}
-          {isAuth && (
+          {isAuth ? (
             <div className="mb-10 bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm">
               <div className="flex items-start gap-3">
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-400 to-indigo-600 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 mt-0.5">
-                  {user?.name?.[0]?.toUpperCase() || "U"}
+                  {user?.name?.[0]?.toUpperCase() ?? "U"}
                 </div>
                 <div className="flex-1">
                   <textarea
                     ref={commentInputRef}
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
-                    placeholder="Share your thoughts..."
+                    placeholder="Share your thoughts…"
                     rows={3}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addComment();
@@ -337,7 +424,7 @@ const BlogPage = () => {
                   />
                   <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
                     <span className="text-xs text-slate-400">
-                      {comment.length > 0 && "Ctrl+Enter to post"}
+                      {comment.length > 0 && "Ctrl + Enter to post"}
                     </span>
                     <button
                       onClick={addComment}
@@ -347,7 +434,7 @@ const BlogPage = () => {
                       {submitting ? (
                         <>
                           <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                          Posting...
+                          Posting…
                         </>
                       ) : (
                         <>
@@ -360,6 +447,13 @@ const BlogPage = () => {
                 </div>
               </div>
             </div>
+          ) : (
+            <p className="mb-8 text-sm text-slate-500 dark:text-slate-400">
+              <Link href="/login" className="text-violet-600 hover:underline">
+                Log in
+              </Link>{" "}
+              to join the conversation.
+            </p>
           )}
 
           {/* Comment List */}
@@ -370,46 +464,50 @@ const BlogPage = () => {
               <p className="text-sm mt-1">Be the first to share your thoughts!</p>
             </div>
           ) : (
-            <div className="space-y-1">
+            <ul className="space-y-1">
               {comments.map((c, i) => (
-                <div
+                <li
                   key={c.id || i}
                   className="group flex gap-3 py-5 border-b border-slate-100 dark:border-slate-800 last:border-0"
                 >
                   <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-300 to-slate-500 dark:from-slate-600 dark:to-slate-800 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
-                    {c.username?.[0]?.toUpperCase() || <User2 className="w-4 h-4" />}
+                    {c.username?.[0]?.toUpperCase() ?? <User2 className="w-4 h-4" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="font-semibold text-sm text-slate-900 dark:text-white truncate">
                         {c.username}
                       </span>
-                      <span className="text-xs text-slate-400 flex-shrink-0">
+                      {/* ✅ Fixed: c.create_at used consistently throughout */}
+                      <time
+                        dateTime={c.create_at}
+                        className="text-xs text-slate-400 flex-shrink-0"
+                      >
                         {new Date(c.create_at).toLocaleDateString("en-US", {
                           month: "short",
                           day: "numeric",
                         })}
-                      </span>
+                      </time>
                     </div>
-                    <p className="text-slate-600 dark:text-slate-300 text-sm mt-1 leading-relaxed">
+                    <p className="text-slate-600 dark:text-slate-300 text-sm mt-1 leading-relaxed break-words">
                       {c.comment}
                     </p>
                   </div>
                   {c.userid === user?._id && (
                     <button
                       onClick={() => deleteComment(c.id)}
+                      aria-label="Delete comment"
                       className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-1.5 text-slate-300 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 transition-all rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
-                      title="Delete comment"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   )}
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </div>
-      </div>
+      </section>
     </div>
   );
 };

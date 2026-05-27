@@ -1,36 +1,60 @@
 "use client";
-import React from "react";
+import React, { useEffect } from "react";
 import axios from "axios";
 import { useAppData, user_service } from "../../components/context/AppContext";
 import Cookies from "js-cookie";
 import toast from "react-hot-toast";
-import { useGoogleLogin } from "@react-oauth/google";
-import { redirect } from "next/navigation";
+import { useGoogleLogin, CodeResponse } from "@react-oauth/google";
+import { useRouter } from "next/navigation";
 import Loading from "@/components/loading";
 import { BookOpen } from "lucide-react";
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface LoginApiResponse {
+  token: string;
+  message: string;
+  user: {
+    _id: string;
+    name: string;
+    email: string;
+    image: string;
+    instagram: string;
+    facebook: string;
+    linkedin: string;
+    bio: string;
+  };
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 const LoginPage = () => {
   const { isAuth, setIsAuth, loading, setLoading, setUser } = useAppData();
+  const router = useRouter();
 
-  if (isAuth) return redirect("/blogs");
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (isAuth) router.replace("/blogs");
+  }, [isAuth, router]);
 
-  const responseGoogle = async (authResult: any) => {
+  const responseGoogle = async (authResult: CodeResponse) => {
     setLoading(true);
     try {
-      const result = await axios.post(`${user_service}/api/v1/login`, {
-        code: authResult["code"],
-      });
-      Cookies.set("token", result.data.token, {
+      const { data } = await axios.post<LoginApiResponse>(
+        `${user_service}/api/v1/login`,
+        { code: authResult.code }
+      );
+      Cookies.set("token", data.token, {
         expires: 5,
         secure: true,
         path: "/",
       });
-      toast.success(result.data.message);
+      toast.success(data.message);
       setIsAuth(true);
-      setUser(result.data.user);
-    } catch (error) {
-      console.log("error", error);
-      toast.error("Problem while logging you in");
+      setUser(data.user);
+      router.replace("/blogs");
+    } catch {
+      toast.error("Problem while logging you in. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -38,7 +62,7 @@ const LoginPage = () => {
 
   const googleLogin = useGoogleLogin({
     onSuccess: responseGoogle,
-    onError: responseGoogle,
+    onError: () => toast.error("Google login failed. Please try again."),
     flow: "auth-code",
   });
 
@@ -72,10 +96,14 @@ const LoginPage = () => {
 
           {/* Google Login Button */}
           <button
-            onClick={googleLogin}
+            onClick={() => googleLogin()}
             className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 transition-all duration-200 shadow-sm"
           >
-            <img src="/google.png" className="w-5 h-5 flex-shrink-0" alt="Google" />
+            <img
+              src="/google.png"
+              className="w-5 h-5 flex-shrink-0"
+              alt="Google"
+            />
             Continue with Google
           </button>
 
@@ -90,6 +118,7 @@ const LoginPage = () => {
             </span>
           </p>
         </div>
+
       </div>
     </div>
   );

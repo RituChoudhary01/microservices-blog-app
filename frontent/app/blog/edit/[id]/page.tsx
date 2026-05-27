@@ -25,17 +25,41 @@ import { useParams, useRouter } from "next/navigation";
 
 const JoditEditor = dynamic(() => import("jodit-react"), { ssr: false });
 
+// ── Types ────────────────────────────────────────────────────────────────────
+
+interface BlogDetail {
+  title: string;
+  description: string;
+  category: string;
+  blogcontent: string;
+  image: string;
+}
+
+interface FormData {
+  title: string;
+  description: string;
+  category: string;
+  image: File | null;
+  blogcontent: string;
+}
+
+interface ApiResponse {
+  message: string;
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 const EditBlogPage = () => {
   const editor = useRef(null);
   const [content, setContent] = useState("");
   const router = useRouter();
-
   const { fetchBlogs } = useAppData();
-
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>();
 
   const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({
+  const [existingImage, setExistingImage] = useState<string>("");
+
+  const [formData, setFormData] = useState<FormData>({
     title: "",
     description: "",
     category: "",
@@ -43,30 +67,17 @@ const EditBlogPage = () => {
     blogcontent: "",
   });
 
-  const handleInputChange = (e: any) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleFileChange = (e: any) => {
-    const file = e.target.files[0];
-    setFormData({ ...formData, image: file });
-  };
-
-  const config = useMemo(
-    () => ({
-      readonly: false, // all options from https://xdsoft.net/jodit/docs/,
-      placeholder: "Start typings...",
-    }),
-    []
-  );
-
-  const [existingImage, setExistingImage] = useState(null);
+  // ── Fetch existing blog ───────────────────────────────────────────────────
 
   useEffect(() => {
+    if (!id) return;
+
     const fetchBlog = async () => {
       setLoading(true);
       try {
-        const { data } = await axios.get(`${blog_service}/api/v1/blog/${id}`);
+        const { data } = await axios.get<{ blog: BlogDetail }>(
+          `${blog_service}/api/v1/blog/${id}`
+        );
         const blog = data.blog;
 
         setFormData({
@@ -79,120 +90,173 @@ const EditBlogPage = () => {
 
         setContent(blog.blogcontent);
         setExistingImage(blog.image);
-      } catch (error) {
-        console.log(error);
+      } catch {
+        toast.error("Could not load blog. Please try again.");
+        router.push("/blogs");
       } finally {
         setLoading(false);
       }
     };
-    if (id) fetchBlog();
-  }, [id]);
 
-  const handleSubmit = async (e: any) => {
+    fetchBlog();
+  }, [id, router]);
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setFormData({ ...formData, image: file });
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setLoading(true);
-
-    const fromDataToSend = new FormData();
-
-    fromDataToSend.append("title", formData.title);
-    fromDataToSend.append("description", formData.description);
-    fromDataToSend.append("blogcontent", formData.blogcontent);
-    fromDataToSend.append("category", formData.category);
-
-    if (formData.image) {
-      fromDataToSend.append("file", formData.image);
+    if (!formData.title.trim() || !formData.blogcontent.trim()) {
+      toast.error("Title and content are required.");
+      return;
     }
+
+    setLoading(true);
+    const payload = new FormData();
+    payload.append("title", formData.title);
+    payload.append("description", formData.description);
+    payload.append("blogcontent", formData.blogcontent);
+    payload.append("category", formData.category);
+    if (formData.image) payload.append("file", formData.image);
 
     try {
       const token = Cookies.get("token");
-      const { data } = await axios.post(
+      const { data } = await axios.post<ApiResponse>(
         `${author_service}/api/v1/blog/${id}`,
-        fromDataToSend,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        payload,
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-
-      toast.success(data.message);
+      toast.success(data.message ?? "Blog updated successfully!");
       fetchBlogs();
-    } catch (error) {
-      toast.error("Error while adding blog");
+      router.push(`/blog/${id}`);
+    } catch {
+      toast.error("Error while updating blog. Please try again.");
     } finally {
       setLoading(false);
     }
   };
+
+  const config = useMemo(
+    () => ({
+      readonly: false,
+      placeholder: "Start typing your blog content...",
+    }),
+    []
+  );
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <div className="max-w-4xl mx-auto p-6">
       <Card>
         <CardHeader>
-          <h2 className="text-2xl font-bold">Add New Blog</h2>
+          <h2 className="text-2xl font-bold">Edit Blog</h2>
+          <p className="text-sm text-muted-foreground">
+            Update your blog post details below.
+          </p>
         </CardHeader>
+
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <Label>Title</Label>
-            <div className="flex justify-center items-center gap-2">
+          <form onSubmit={handleSubmit} className="space-y-5">
+
+            {/* Title */}
+            <div className="space-y-1.5">
+              <Label htmlFor="title">Title</Label>
               <Input
+                id="title"
                 name="title"
                 value={formData.title}
                 onChange={handleInputChange}
-                placeholder="Enter Blog title"
+                placeholder="Enter blog title"
                 required
               />
             </div>
 
-            <Label>Description</Label>
-            <div className="flex justify-center items-center gap-2">
+            {/* Description */}
+            <div className="space-y-1.5">
+              <Label htmlFor="description">Description</Label>
               <Input
+                id="description"
                 name="description"
                 value={formData.description}
                 onChange={handleInputChange}
-                placeholder="Enter Blog descripiton"
+                placeholder="Enter blog description"
                 required
               />
             </div>
 
-            <Label>Category</Label>
-            <Select
-              onValueChange={(value: any) =>
-                setFormData({ ...formData, category: value })
-              }
-            >
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={formData.category || "Select category"}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {blogCategories?.map((e, i) => (
-                  <SelectItem key={i} value={e}>
-                    {e}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <div>
-              <Label>Image Upload</Label>
-              {existingImage && !formData.image && (
-                <img
-                  src={existingImage}
-                  className="w-40 h-40 object-cover rounded mb-2"
-                  alt=""
-                />
-              )}
-              <Input type="file" accept="image/*" onChange={handleFileChange} />
+            {/* Category */}
+            <div className="space-y-1.5">
+              <Label>Category</Label>
+              <Select
+                value={formData.category}
+                onValueChange={(value: string) =>
+                  setFormData({ ...formData, category: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {blogCategories.map((cat, i) => (
+                    <SelectItem key={i} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
-            <div>
+            {/* Image */}
+            <div className="space-y-1.5">
+              <Label htmlFor="image">Cover Image</Label>
+              {existingImage && !formData.image && (
+                <div className="mb-2">
+                  <img
+                    src={existingImage}
+                    className="w-40 h-40 object-cover rounded-lg border"
+                    alt="Current cover"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Current image — upload a new one to replace it.
+                  </p>
+                </div>
+              )}
+              {formData.image && (
+                <div className="mb-2">
+                  <img
+                    src={URL.createObjectURL(formData.image)}
+                    className="w-40 h-40 object-cover rounded-lg border"
+                    alt="New cover preview"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    New image preview
+                  </p>
+                </div>
+              )}
+              <Input
+                id="image"
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+              />
+            </div>
+
+            {/* Blog Content */}
+            <div className="space-y-1.5">
               <Label>Blog Content</Label>
-              <div className="flex justify-between items-center mb-2">
-                <p className="text-sm text-muted-foreground">
-                  Paste you blog or type here. You can use rich text formatting.
-                  Please add image after improving your grammer
-                </p>
-              </div>
+              <p className="text-sm text-muted-foreground">
+                Write or paste your blog content. Use rich text formatting as
+                needed. Add images after finalising your text.
+              </p>
               <JoditEditor
                 ref={editor}
                 value={content}
@@ -205,9 +269,18 @@ const EditBlogPage = () => {
               />
             </div>
 
+            {/* Submit */}
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Submitting" : "Submit"}
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Saving changes…
+                </span>
+              ) : (
+                "Save Changes"
+              )}
             </Button>
+
           </form>
         </CardContent>
       </Card>

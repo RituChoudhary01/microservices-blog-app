@@ -11,14 +11,17 @@ import Cookies from "js-cookie";
 import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
 import { GoogleOAuthProvider } from "@react-oauth/google";
-import { get } from "http";
 
-export const user_service = "https://user-service-latest-6jwv.onrender.com";
+// ── Service URLs ──────────────────────────────────────────────────────────────
+
+export const user_service  = "https://user-service-latest-6jwv.onrender.com";
 export const author_service = "https://auth-service-latest-yqu0.onrender.com";
-export const blog_service = "https://blog-service-latest-ivv5.onrender.com";
+export const blog_service  = "https://blog-service-latest-ivv5.onrender.com";
+
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 export const blogCategories = [
-  "Techonlogy",
+  "Technology",
   "Health",
   "Finance",
   "Travel",
@@ -26,6 +29,8 @@ export const blogCategories = [
   "Entertainment",
   "Study",
 ];
+
+// ── Interfaces ────────────────────────────────────────────────────────────────
 
 export interface User {
   _id: string;
@@ -45,11 +50,12 @@ export interface Blog {
   blogcontent: string;
   image: string;
   category: string;
+  tags: string[];
   author: string;
   create_at: string;
 }
 
-interface SavedBlogType {
+export interface SavedBlogType {
   id: string;
   userid: string;
   blogid: string;
@@ -74,6 +80,8 @@ interface AppContextType {
   getSavedBlogs: () => Promise<void>;
 }
 
+// ── Context ───────────────────────────────────────────────────────────────────
+
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 interface AppProviderProps {
@@ -81,76 +89,74 @@ interface AppProviderProps {
 }
 
 export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser]     = useState<User | null>(null);
   const [isAuth, setIsAuth] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const [blogs, setBlogs]           = useState<Blog[] | null>(null);
+  const [blogLoading, setBlogLoading] = useState(true);
+  const [category, setCategory]     = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [savedBlogs, setSavedBlogs] = useState<SavedBlogType[] | null>(null);
+
+  // ── Fetch current user ──────────────────────────────────────────────────
 
   async function fetchUser() {
     try {
       const token = Cookies.get("token");
-
-      const { data } = await axios.get(`${user_service}/api/v1/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      const { data } = await axios.get<User>(`${user_service}/api/v1/me`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-
       setUser(data);
       setIsAuth(true);
-      setLoading(false);
-    } catch (error) {
-      console.log(error);
+    } catch {
+      // not logged in — stay as guest
+    } finally {
       setLoading(false);
     }
   }
 
-  const [blogLoading, setBlogLoading] = useState(true);
-
-  const [blogs, setBlogs] = useState<Blog[] | null>(null);
-  const [category, setCategory] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  // ── Fetch all blogs ─────────────────────────────────────────────────────
 
   async function fetchBlogs() {
     setBlogLoading(true);
     try {
-      const { data } = await axios.get(
+      const { data } = await axios.get<Blog[]>(
         `${blog_service}/api/v1/blog/all?searchQuery=${searchQuery}&category=${category}`
       );
-
       setBlogs(data);
-    } catch (error) {
-      console.log(error);
+    } catch {
+      // keep previous blogs on error
     } finally {
       setBlogLoading(false);
     }
   }
 
-  const [savedBlogs, setSavedBlogs] = useState<SavedBlogType[] | null>(null);
+  // ── Fetch saved blogs ───────────────────────────────────────────────────
 
   async function getSavedBlogs() {
     const token = Cookies.get("token");
     try {
-      const { data } = await axios.get(
+      const { data } = await axios.get<SavedBlogType[]>(
         `${blog_service}/api/v1/blog/saved/all`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
       setSavedBlogs(data);
-    } catch (error) {
-      console.log(error);
+    } catch {
+      // not logged in or no saved blogs
     }
   }
+
+  // ── Logout ──────────────────────────────────────────────────────────────
 
   async function logoutUser() {
     Cookies.remove("token");
     setUser(null);
     setIsAuth(false);
-
-    toast.success("user Logged Out");
+    toast.success("Logged out successfully.");
   }
+
+  // ── Effects ─────────────────────────────────────────────────────────────
 
   useEffect(() => {
     fetchUser();
@@ -160,15 +166,18 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   useEffect(() => {
     fetchBlogs();
   }, [searchQuery, category]);
+
+  // ── Provider ─────────────────────────────────────────────────────────────
+
   return (
     <AppContext.Provider
       value={{
         user,
-        setIsAuth,
-        isAuth,
-        setLoading,
-        loading,
         setUser,
+        isAuth,
+        setIsAuth,
+        loading,
+        setLoading,
         logoutUser,
         blogs,
         blogLoading,
@@ -188,10 +197,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   );
 };
 
+// ── Hook ──────────────────────────────────────────────────────────────────────
+
 export const useAppData = (): AppContextType => {
   const context = useContext(AppContext);
   if (!context) {
-    throw new Error("useappdata must be used within AppProvider");
+    throw new Error("useAppData must be used within AppProvider");
   }
   return context;
 };

@@ -24,14 +24,37 @@ import toast from "react-hot-toast";
 
 const JoditEditor = dynamic(() => import("jodit-react"), { ssr: false });
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface FormData {
+  title: string;
+  description: string;
+  category: string;
+  image: File | null;
+  blogcontent: string;
+}
+
+interface ApiResponse {
+  message: string;
+}
+
+interface AiBlogResponse {
+  html: string;
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 const AddBlog = () => {
   const editor = useRef(null);
   const [content, setContent] = useState("");
-
   const { fetchBlogs } = useAppData();
 
   const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({
+  const [aiTitle, setAiTitle] = useState(false);
+  const [aiDescription, setAiDescription] = useState(false);
+  const [aiBlogLoading, setAiBlogLoading] = useState(false);
+
+  const [formData, setFormData] = useState<FormData>({
     title: "",
     description: "",
     category: "",
@@ -39,112 +62,103 @@ const AddBlog = () => {
     blogcontent: "",
   });
 
-  const handleInputChange = (e: any) => {
+  const resetForm = () => {
+    setFormData({
+      title: "",
+      description: "",
+      category: "",
+      image: null,
+      blogcontent: "",
+    });
+    setContent("");
+  };
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleFileChange = (e: any) => {
-    const file = e.target.files[0];
-    setFormData({ ...formData, image: file });
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setFormData({ ...formData, image: file });
   };
 
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setLoading(true);
-
-    const fromDataToSend = new FormData();
-
-    fromDataToSend.append("title", formData.title);
-    fromDataToSend.append("description", formData.description);
-    fromDataToSend.append("blogcontent", formData.blogcontent);
-    fromDataToSend.append("category", formData.category);
-
-    if (formData.image) {
-      fromDataToSend.append("file", formData.image);
+    if (!formData.blogcontent.trim()) {
+      toast.error("Blog content cannot be empty.");
+      return;
     }
+
+    setLoading(true);
+    const payload = new FormData();
+    payload.append("title", formData.title);
+    payload.append("description", formData.description);
+    payload.append("blogcontent", formData.blogcontent);
+    payload.append("category", formData.category);
+    if (formData.image) payload.append("file", formData.image);
 
     try {
       const token = Cookies.get("token");
-      const { data } = await axios.post(
+      const { data } = await axios.post<ApiResponse>(
         `${author_service}/api/v1/blog/new`,
-        fromDataToSend,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        payload,
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-
-      toast.success(data.message);
-      setFormData({
-        title: "",
-        description: "",
-        category: "",
-        image: null,
-        blogcontent: "",
-      });
-      setContent("");
-      setTimeout(() => {
-        fetchBlogs();
-      }, 4000);
-    } catch (error) {
-      toast.error("Error while adding blog");
+      toast.success(data.message ?? "Blog published!");
+      resetForm();
+      setTimeout(() => fetchBlogs(), 4000);
+    } catch {
+      toast.error("Error while adding blog. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  const [aiTitle, setAiTitle] = useState(false);
+  // ── AI Handlers ───────────────────────────────────────────────────────────
 
   const aiTitleResponse = async () => {
     try {
       setAiTitle(true);
-      const { data } = await axios.post(`${author_service}/api/v1/ai/title`, {
-        text: formData.title,
-      });
-      setFormData({ ...formData, title: data as string });
-    } catch (error) {
-      toast.error("Problem while fetching from ai");
-      console.log(error);
+      const { data } = await axios.post<string>(
+        `${author_service}/api/v1/ai/title`,
+        { text: formData.title }
+      );
+      setFormData({ ...formData, title: data });
+    } catch {
+      toast.error("Problem while fetching AI title.");
     } finally {
       setAiTitle(false);
     }
   };
 
-  const [aiDescripiton, setAiDescription] = useState(false);
-
   const aiDescriptionResponse = async () => {
     try {
       setAiDescription(true);
-      const { data } = await axios.post(
+      const { data } = await axios.post<string>(
         `${author_service}/api/v1/ai/descripiton`,
-        {
-          title: formData.title,
-          description: formData.description,
-        }
+        { title: formData.title, description: formData.description }
       );
-      setFormData({ ...formData, description: data as string });
-    } catch (error) {
-      toast.error("Problem while fetching from ai");
-      console.log(error);
+      setFormData({ ...formData, description: data });
+    } catch {
+      toast.error("Problem while fetching AI description.");
     } finally {
       setAiDescription(false);
     }
   };
 
-  const [aiBlogLoading, setAiBlogLoading] = useState(false);
-
   const aiBlogResponse = async () => {
     try {
       setAiBlogLoading(true);
-      const { data } = await axios.post(`${author_service}/api/v1/ai/blog`, {
-        blog: formData.blogcontent,
-      });
+      const { data } = await axios.post<AiBlogResponse>(
+        `${author_service}/api/v1/ai/blog`,
+        { blog: formData.blogcontent }
+      );
       setContent(data.html);
       setFormData({ ...formData, blogcontent: data.html });
-    } catch (error: any) {
-      toast.error("Problem while fetching from ai");
-      console.log(error);
+    } catch {
+      toast.error("Problem while fixing grammar.");
     } finally {
       setAiBlogLoading(false);
     }
@@ -152,112 +166,154 @@ const AddBlog = () => {
 
   const config = useMemo(
     () => ({
-      readonly: false, // all options from https://xdsoft.net/jodit/docs/,
-      placeholder: "Start typings...",
+      readonly: false,
+      placeholder: "Start typing your blog content...",
     }),
     []
   );
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <div className="max-w-4xl mx-auto p-6">
       <Card>
         <CardHeader>
           <h2 className="text-2xl font-bold">Add New Blog</h2>
+          <p className="text-sm text-muted-foreground">
+            Fill in the details below to publish a new blog post.
+          </p>
         </CardHeader>
+
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <Label>Title</Label>
-            <div className="flex justify-center items-center gap-2">
-              <Input
-                name="title"
-                value={formData.title}
-                onChange={handleInputChange}
-                placeholder="Enter Blog title"
-                className={
-                  aiTitle ? "animate-pulse placeholder:opacity-60" : ""
-                }
-                required
-              />
-              {formData.title === "" ? (
-                ""
-              ) : (
-                <Button
-                  type="button"
-                  onClick={aiTitleResponse}
-                  disabled={aiTitle}
-                >
-                  <RefreshCw className={aiTitle ? "animate-spin" : ""} />
-                </Button>
-              )}
-            </div>
+          <form onSubmit={handleSubmit} className="space-y-5">
 
-            <Label>Description</Label>
-            <div className="flex justify-center items-center gap-2">
-              <Input
-                name="description"
-                value={formData.description}
-                onChange={handleInputChange}
-                placeholder="Enter Blog descripiton"
-                className={
-                  aiDescripiton ? "animate-pulse placeholder:opacity-60" : ""
-                }
-                required
-              />
-              {formData.title === "" ? (
-                ""
-              ) : (
-                <Button
-                  onClick={aiDescriptionResponse}
-                  type="button"
-                  disabled={aiDescripiton}
-                >
-                  <RefreshCw className={aiDescripiton ? "animate-spin" : ""} />
-                </Button>
-              )}
-            </div>
-
-            <Label>Category</Label>
-            <Select
-              onValueChange={(value: any) =>
-                setFormData({ ...formData, category: value })
-              }
-            >
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={formData.category || "Select category"}
+            {/* Title */}
+            <div className="space-y-1.5">
+              <Label htmlFor="title">Title</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="title"
+                  name="title"
+                  value={formData.title}
+                  onChange={handleInputChange}
+                  placeholder="Enter blog title"
+                  className={aiTitle ? "animate-pulse" : ""}
+                  required
                 />
-              </SelectTrigger>
-              <SelectContent>
-                {blogCategories?.map((e, i) => (
-                  <SelectItem key={i} value={e}>
-                    {e}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <div>
-              <Label>Image Upload</Label>
-              <Input type="file" accept="image/*" onChange={handleFileChange} />
+                {formData.title && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={aiTitleResponse}
+                    disabled={aiTitle}
+                    title="Improve title with AI"
+                  >
+                    <RefreshCw
+                      size={16}
+                      className={aiTitle ? "animate-spin" : ""}
+                    />
+                  </Button>
+                )}
+              </div>
             </div>
 
-            <div>
+            {/* Description */}
+            <div className="space-y-1.5">
+              <Label htmlFor="description">Description</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="description"
+                  name="description"
+                  value={formData.description}
+                  onChange={handleInputChange}
+                  placeholder="Enter blog description"
+                  className={aiDescription ? "animate-pulse" : ""}
+                  required
+                />
+                {formData.title && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={aiDescriptionResponse}
+                    disabled={aiDescription}
+                    title="Improve description with AI"
+                  >
+                    <RefreshCw
+                      size={16}
+                      className={aiDescription ? "animate-spin" : ""}
+                    />
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Category */}
+            <div className="space-y-1.5">
+              <Label>Category</Label>
+              <Select
+                value={formData.category}
+                onValueChange={(value: string) =>
+                  setFormData({ ...formData, category: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {blogCategories.map((cat, i) => (
+                    <SelectItem key={i} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Image */}
+            <div className="space-y-1.5">
+              <Label htmlFor="image">Cover Image</Label>
+              {formData.image && (
+                <div className="mb-2">
+                  <img
+                    src={URL.createObjectURL(formData.image)}
+                    className="w-40 h-40 object-cover rounded-lg border"
+                    alt="Cover preview"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Image preview
+                  </p>
+                </div>
+              )}
+              <Input
+                id="image"
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+              />
+            </div>
+
+            {/* Blog Content */}
+            <div className="space-y-1.5">
               <Label>Blog Content</Label>
               <div className="flex justify-between items-center mb-2">
                 <p className="text-sm text-muted-foreground">
-                  Paste you blog or type here. You can use rich text formatting.
-                  Please add image after improving your grammer
+                  Write or paste your content. Add images after fixing grammar.
                 </p>
                 <Button
                   type="button"
-                  size={"sm"}
+                  size="sm"
+                  variant="outline"
                   onClick={aiBlogResponse}
-                  disabled={aiBlogLoading}
+                  disabled={aiBlogLoading || !formData.blogcontent.trim()}
+                  title="Fix grammar with AI"
                 >
                   <RefreshCw
                     size={16}
                     className={aiBlogLoading ? "animate-spin" : ""}
                   />
-                  <span className="ml-2">Fix Grammer</span>
+                  <span className="ml-2">
+                    {aiBlogLoading ? "Fixing…" : "Fix Grammar"}
+                  </span>
                 </Button>
               </div>
               <JoditEditor
@@ -272,9 +328,18 @@ const AddBlog = () => {
               />
             </div>
 
+            {/* Submit */}
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Submitting" : "Submit"}
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Publishing…
+                </span>
+              ) : (
+                "Publish Blog"
+              )}
             </Button>
+
           </form>
         </CardContent>
       </Card>

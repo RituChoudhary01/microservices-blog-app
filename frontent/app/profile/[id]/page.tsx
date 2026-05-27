@@ -18,7 +18,7 @@ const UserProfilePage = () => {
       try {
         setFetching(true);
         const { data } = await axios.get(`${user_service}/api/v1/user/${id}`);
-        setProfileUser(data);
+        setProfileUser(data as User);
       } catch (error) {
         console.log(error);
       } finally {

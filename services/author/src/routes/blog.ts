@@ -10,3 +10,5 @@ router.post("/ai/title", aiTitleResponse);
 router.post("/ai/descripiton", aiDescriptionResponse);
 router.post("/ai/blog", aiBlogResponse);
 export default router
+
+

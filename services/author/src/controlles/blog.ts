@@ -35,87 +35,117 @@ export const createBlog = TryCatch(async (req: AuthenticatedRequest, res) => {
   });
 });
 
-export const updateBlog = TryCatch(async (req: AuthenticatedRequest, res) => {
-  const { id } = req.params;
-  const { title, description, blogcontent, category } = req.body;
+export const updateBlog = TryCatch(
+  async (req: AuthenticatedRequest, res) => {
+    const { id } = req.params;
+    const { title, description, blogcontent, category } = req.body;
 
-  const file = req.file;
+    const file = req.file;
 
-  const blog = await sql`SELECT * FROM blogs WHERE id = ${id}`;
+    const blog = await sql`SELECT * FROM blogs WHERE id = ${id}`;
 
-  if (!blog.length) {
-    res.status(404).json({
-      message: "No blog with this id",
-    });
-    return;
-  }
-  if (blog[0].author !== req.user?._id){
-    res.status(401).json({
-      message: "You are not author of this blog",
-    });
-    return;
-  }
-  let imageUrl = blog[0].image;
-  if (file){
-    const fileBuffer = getBuffer(file);
-    if (!fileBuffer || !fileBuffer.content) {
-      res.status(400).json({
-        message: "Failed to generate buffer",
+    if (!blog.length) {
+      res.status(404).json({
+        message: "No blog with this id",
       });
       return;
     }
-    const cloud = await cloudinary.v2.uploader.upload(fileBuffer.content, {
-      folder: "blogs",
-    });
-    imageUrl = cloud.secure_url;
-  }
-  //updated code
-  const updatedBlog = await sql`UPDATE blogs SET
-    title = ${title || blog[0].title},
-    description = ${description || blog[0].description},
-    image= ${imageUrl},
-    blogcontent = ${blogcontent || blog[0].blogcontent},
-    category = ${category || blog[0].category}
 
-    WHERE id = ${id}
-    RETURNING *
+    const singleBlog = blog[0]!;
+
+    if (singleBlog.author !== req.user?._id) {
+      res.status(401).json({
+        message: "You are not author of this blog",
+      });
+      return;
+    }
+
+    let imageUrl = singleBlog.image;
+
+    if (file) {
+      const fileBuffer = getBuffer(file);
+
+      if (!fileBuffer || !fileBuffer.content) {
+        res.status(400).json({
+          message: "Failed to generate buffer",
+        });
+        return;
+      }
+
+      const cloud = await cloudinary.v2.uploader.upload(
+        fileBuffer.content,
+        {
+          folder: "blogs",
+        }
+      );
+
+      imageUrl = cloud.secure_url;
+    }
+
+    const updatedBlog = await sql`
+      UPDATE blogs SET
+      title = ${title || singleBlog.title},
+      description = ${description || singleBlog.description},
+      image = ${imageUrl},
+      blogcontent = ${blogcontent || singleBlog.blogcontent},
+      category = ${category || singleBlog.category}
+      WHERE id = ${id}
+      RETURNING *
     `;
 
-  await invalidateChacheJob(["blogs:*", `blog:${id}`]);
+    await invalidateChacheJob(["blogs:*", `blog:${id}`]);
 
-  res.json({
-    message: "Blog Updated",
-    blog: updatedBlog[0],
-  });
-});
-
-export const deleteBlog = TryCatch(async (req: AuthenticatedRequest, res) => {
-  const blog = await sql`SELECT * FROM blogs WHERE id = ${req.params.id}`;
-
-  if (!blog.length) {
-    res.status(404).json({
-      message: "No blog with this id",
+    res.json({
+      message: "Blog Updated",
+      blog: updatedBlog[0],
     });
-    return;
   }
+);
 
-  if (blog[0].author !== req.user?._id) {
-    res.status(401).json({
-      message: "You are not author of this blog",
+export const deleteBlog = TryCatch(
+  async (req: AuthenticatedRequest, res) => {
+    const blog = await sql`
+      SELECT * FROM blogs WHERE id = ${req.params.id}
+    `;
+
+    if (!blog.length) {
+      res.status(404).json({
+        message: "No blog with this id",
+      });
+      return;
+    }
+
+    const singleBlog = blog[0]!;
+
+    if (singleBlog.author !== req.user?._id) {
+      res.status(401).json({
+        message: "You are not author of this blog",
+      });
+      return;
+    }
+
+    await sql`
+      DELETE FROM savedblogs WHERE blogid = ${req.params.id}
+    `;
+
+    await sql`
+      DELETE FROM comments WHERE blogid = ${req.params.id}
+    `;
+
+    await sql`
+      DELETE FROM blogs WHERE id = ${req.params.id}
+    `;
+
+    await invalidateChacheJob([
+      "blogs:*",
+      `blog:${req.params.id}`,
+    ]);
+
+    res.json({
+      message: "Blog Delete",
     });
-    return;
   }
-
-  await sql`DELETE FROM savedblogs WHERE blogid = ${req.params.id}`;
-  await sql`DELETE FROM comments WHERE blogid = ${req.params.id}`;
-  await sql`DELETE FROM blogs WHERE id = ${req.params.id}`;
-
-  await invalidateChacheJob(["blogs:*", `blog:${req.params.id}`]);
-
-  res.json({
-    message: "Blog Delete",
-  });
-});
+);
 
 export const aiTitleResponse = TryCatch(async (req, res) => {
   const { text } = req.body;
@@ -126,7 +156,7 @@ export const aiTitleResponse = TryCatch(async (req, res) => {
   });
   async function main() {
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash-lite",
+      model: "gemini-2.5-flash",
       contents: prompt,
     });
     let rawtext = response.text;
@@ -166,7 +196,7 @@ following blog description and return only the corrected sentence. Do not add an
 
   async function main() {
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash",
       contents: prompt,
     });
 
@@ -222,7 +252,7 @@ Rules:
 `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash",
       contents: `${prompt}\n\n${blog}`,
     });
 

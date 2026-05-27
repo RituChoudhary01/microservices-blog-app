@@ -5,7 +5,7 @@ export const connectRabbitMQ = async()=>{
   try{
     const connection = await amqp.connect({
       protocol:"amqp",
-      hostname:"localhost",
+      hostname:"3.27.187.124",
       port:5672,
       username:"admin",
       password:"admin123",

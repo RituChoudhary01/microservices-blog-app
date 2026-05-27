@@ -57,9 +57,9 @@ export const getSingleBlog = TryCatch(async (req, res) => {
     });
     return;
   }
-  console.log(`${process.env.USER_SERVICE}/api/v1/user/${blog[0].author}`);
+  const singleBlog = blog[0]!;
   const { data } = await axios.get(
-    `${process.env.USER_SERVICE}/api/v1/user/${blog[0].author}`
+    `${process.env.USER_SERVICE}/api/v1/user/${singleBlog.author}`
   );
   const responseData = { blog: blog[0], author: data };
   await redisClient.set(cacheKey, JSON.stringify(responseData), { EX: 3600 });
@@ -89,10 +89,14 @@ export const deleteComment = TryCatch(
     const { commentid } = req.params;
 
     const comment = await sql`SELECT * FROM comments WHERE id = ${commentid}`;
-
-    console.log(comment);
-
-    if (comment[0].userid !== req.user?._id) {
+    if (comment.length === 0) {
+      res.status(404).json({
+        message: "Comment not found",
+      });
+      return;
+    }
+    const singleComment = comment[0]!;
+    if (singleComment.userid !== req.user?._id){
       res.status(401).json({
         message: "You are not owner of this comment",
       });
@@ -117,10 +121,8 @@ export const saveBlog = TryCatch(async (req: AuthenticatedRequest, res) => {
     });
     return;
   }
-
   const existing =
     await sql`SELECT * FROM savedblogs WHERE userid = ${userid} AND blogid = ${blogid}`;
-
   if (existing.length === 0) {
     await sql`INSERT INTO savedblogs (blogid, userid) VALUES (${blogid}, ${userid})`;
 
@@ -130,7 +132,6 @@ export const saveBlog = TryCatch(async (req: AuthenticatedRequest, res) => {
     return;
   } else {
     await sql`DELETE FROM savedblogs WHERE userid = ${userid} AND blogid = ${blogid}`;
-
     res.json({
       message: "Blog Unsaved",
     });

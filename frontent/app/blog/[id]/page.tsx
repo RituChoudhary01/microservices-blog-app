@@ -1,6 +1,5 @@
 "use client";
 import Loading from "@/components/loading";
-import { Button } from "@/components/ui/button";
 import {
   author_service,
   Blog,
@@ -58,7 +57,6 @@ const BlogPage = () => {
       console.log(error);
     }
   }
-
   useEffect(() => {
     fetchComment();
   }, [id]);
@@ -169,7 +167,7 @@ const BlogPage = () => {
   const readTime = Math.max(1, Math.ceil((blog.blogcontent?.length || 0) / 1200));
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white dark:from-slate-950 dark:to-slate-900">
+    <div className="min-h-screen bg-linear-to-b from-slate-50 to-white dark:from-slate-950 dark:to-slate-900">
       {/* Top Nav Bar */}
       <div className="sticky top-0 z-50 border-b border-slate-200/80 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md">
         <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">

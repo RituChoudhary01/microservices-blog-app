@@ -102,7 +102,7 @@ const AddBlog = () => {
       const { data } = await axios.post(`${author_service}/api/v1/ai/title`, {
         text: formData.title,
       });
-      setFormData({ ...formData, title: data });
+      setFormData({ ...formData, title: data as string });
     } catch (error) {
       toast.error("Problem while fetching from ai");
       console.log(error);
@@ -123,7 +123,7 @@ const AddBlog = () => {
           description: formData.description,
         }
       );
-      setFormData({ ...formData, description: data });
+      setFormData({ ...formData, description: data as string });
     } catch (error) {
       toast.error("Problem while fetching from ai");
       console.log(error);

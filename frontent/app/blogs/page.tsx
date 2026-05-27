@@ -142,7 +142,7 @@ const Blogs = () => {
                     title={e.title}
                     desc={e.description}
                     id={e.id}
-                    time={e.created_at}
+                    time={e.create_at}
                   />
                 ))}
               </div>
